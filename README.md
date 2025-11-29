@@ -281,19 +281,12 @@ if not isfile(settings.folder_name.."/window_size.txt") then
     writefile(settings.folder_name.."/window_size.txt", "")
 end;
 local images = {
-    ['gradient90'] = "https://ani.yt/Projects/furrydecapitator.rip/assetos/images/gradient.png";
-    ['gradient180'] = "https://ani.yt/Projects/furrydecapitator.rip/assetos/images/gradient180.png";
-    ['arrow_down'] = "https://ani.yt/Projects/furrydecapitator.rip/assetos/images/arrowdown.png";
-    ['arrow_up'] = "https://ani.yt/Projects/furrydecapitator.rip/assetos/images/arrowup.png";
+    ['gradient90'] = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    ['gradient180'] = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    ['arrow_down'] = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="; -- Placeholder
+    ['arrow_up'] = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="; -- Placeholder
 }
-for i,v in next, images do
-    if not isfile(settings.folder_name..'/assets/'..i..'.png') then
-        writefile(settings.folder_name..'/assets/'..i..'.png', game:HttpGet(v))
-    end
-    images[i] = readfile(settings.folder_name..'/assets/'..i..'.png')
-end
-    images[i] = syn.crypt.custom.decrypt('aes-ctr',readfile(settings.folder_name..'/assets/'..i..'.ln'),'4XGudgFuutoHUM2Ctwsq4YrQ','zP5JJWPSIbf5Xuuy')
-end
+
 local services = setmetatable({}, {
     __index = function(_, k)
         k = (k == "InputService" and "UserInputService") or k
