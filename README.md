@@ -20,9 +20,256 @@ local settings = {
     drag_time = 0.3;
 };
 
-local drawing = loadstring(game:HttpGet("https://ani.yt/deadcell/utilities/code/drawing.lua"))();
-local tween = loadstring(game:HttpGet("https://ani.yt/deadcell/utilities/code/tween.lua"))() -- shhhh
-local signal = loadstring(game:HttpGet('https://ani.yt/Projects/furrydecapitator.rip/assetos/code/signal.lua'))()
+-- Native Drawing API Wrapper
+local TweenService = game:GetService("TweenService")
+
+-- Drawing wrapper to support UDim2 positions/sizes and Parent property
+local drawing = {}
+local drawingObjects = {}
+
+function drawing:new(className)
+    local obj = Drawing.new(className)
+    local wrapper = {
+        _object = obj,
+        _parent = nil,
+        _absPos = Vector2.new(0, 0),
+        _absSize = Vector2.new(100, 100),
+        _relPos = UDim2.new(0, 0, 0, 0),
+        _relSize = UDim2.new(0, 100, 0, 100),
+        _children = {},
+        exists = true
+    }
+    
+    -- Function to calculate absolute position from UDim2
+    local function calculateAbsolute(parent)
+        local parentPos = parent and parent._absPos or Vector2.new(0, 0)
+        local parentSize = parent and parent._absSize or Vector2.new(0, 0)
+        
+        local x = parentPos.X + (wrapper._relPos.X.Scale * parentSize.X) + wrapper._relPos.X.Offset
+        local y = parentPos.Y + (wrapper._relPos.Y.Scale * parentSize.Y) + wrapper._relPos.Y.Offset
+        
+        local width = (wrapper._relSize.X.Scale * parentSize.X) + wrapper._relSize.X.Offset
+        local height = (wrapper._relSize.Y.Scale * parentSize.Y) + wrapper._relSize.Y.Offset
+        
+        wrapper._absPos = Vector2.new(x, y)
+        wrapper._absSize = Vector2.new(width, height)
+        
+        obj.Position = wrapper._absPos
+        obj.Size = wrapper._absSize
+        
+        -- Update children
+        for _, child in pairs(wrapper._children) do
+            if child.exists then
+                calculateAbsolute(wrapper)
+            end
+        end
+    end
+    
+    -- Metatable for property access
+    setmetatable(wrapper, {
+        __index = function(t, k)
+            if k == "Parent" then
+                return rawget(t, "_parent")
+            elseif k == "Position" then
+                return rawget(t, "_relPos")
+            elseif k == "Size" then
+                return rawget(t, "_relSize")
+            elseif k == "AbsolutePosition" then
+                return rawget(t, "_absPos")
+            elseif k == "AbsoluteSize" then
+                return rawget(t, "_absSize")
+            elseif k == "Remove" then
+                return function()
+                    rawget(t, "_object"):Remove()
+                    rawset(t, "exists", false)
+                    if rawget(t, "_parent") then
+                        local parent = rawget(t, "_parent")
+                        for i, child in ipairs(parent._children) do
+                            if child == t then
+                                table.remove(parent._children, i)
+                                break
+                            end
+                        end
+                    end
+                end
+            else
+                return rawget(t, "_object")[k]
+            end
+        end,
+        __newindex = function(t, k, v)
+            if k == "Parent" then
+                local oldParent = rawget(t, "_parent")
+                if oldParent then
+                    for i, child in ipairs(oldParent._children) do
+                        if child == t then
+                            table.remove(oldParent._children, i)
+                            break
+                        end
+                    end
+                end
+                
+                rawset(t, "_parent", v)
+                if v then
+                    table.insert(v._children, t)
+                    calculateAbsolute(v)
+                else
+                    calculateAbsolute(nil)
+                end
+            elseif k == "Position" then
+                rawset(t, "_relPos", v)
+                calculateAbsolute(rawget(t, "_parent"))
+            elseif k == "Size" then
+                rawset(t, "_relSize", v)
+                calculateAbsolute(rawget(t, "_parent"))
+                -- Update children when size changes
+                for _, child in pairs(rawget(t, "_children")) do
+                    if child.exists then
+                        calculateAbsolute(t)
+                    end
+                end
+            else
+                rawget(t, "_object")[k] = v
+            end
+        end
+    })
+    
+    table.insert(drawingObjects, wrapper)
+    return wrapper
+end
+
+-- Tween wrapper 
+local tween = {}
+
+function tween.new(object, tweenInfo, properties)
+    local tweenObj = {}
+    local startValues = {}
+    local endValues = {}
+    local isPlaying = false
+    local startTime = 0
+    local connection = nil
+    
+    -- Store start and end values
+    for prop, endValue in pairs(properties) do
+        if prop == "Position" or prop == "Size" then
+            startValues[prop] = object[prop]
+            endValues[prop] = endValue
+        else
+            startValues[prop] = object._object and object._object[prop] or object[prop]
+            endValues[prop] = endValue
+        end
+    end
+    
+    function tweenObj:Play()
+        if isPlaying then return end
+        isPlaying = true
+        startTime = tick()
+        
+        connection = RunService.RenderStepped:Connect(function()
+            local elapsed = tick() - startTime
+            local duration = tweenInfo.Time
+            local alpha = math.min(elapsed / duration, 1)
+            
+            -- Apply easing
+            if tweenInfo.EasingStyle == Enum.EasingStyle.Linear then
+                -- Linear
+            elseif tweenInfo.EasingStyle == Enum.EasingStyle.Quad then
+                if tweenInfo.EasingDirection == Enum.EasingDirection.Out then
+                    alpha = 1 - (1 - alpha) ^ 2
+                elseif tweenInfo.EasingDirection == Enum.EasingDirection.In then
+                    alpha = alpha ^ 2
+                else
+                    alpha = alpha < 0.5 and 2 * alpha ^ 2 or 1 - (-2 * alpha + 2) ^ 2 / 2
+                end
+            elseif tweenInfo.EasingStyle == Enum.EasingStyle.Quart then
+                if tweenInfo.EasingDirection == Enum.EasingDirection.Out then
+                    alpha = 1 - (1 - alpha) ^ 4
+                elseif tweenInfo.EasingDirection == Enum.EasingDirection.In then
+                    alpha = alpha ^ 4
+                else
+                    alpha = alpha < 0.5 and 8 * alpha ^ 4 or 1 - (-2 * alpha + 2) ^ 4 / 2
+                end
+            end
+            
+            -- Interpolate values
+            for prop, endValue in pairs(endValues) do
+                local startValue = startValues[prop]
+                if typeof(endValue) == "UDim2" then
+                    local newValue = UDim2.new(
+                        startValue.X.Scale + (endValue.X.Scale - startValue.X.Scale) * alpha,
+                        startValue.X.Offset + (endValue.X.Offset - startValue.X.Offset) * alpha,
+                        startValue.Y.Scale + (endValue.Y.Scale - startValue.Y.Scale) * alpha,
+                        startValue.Y.Offset + (endValue.Y.Offset - startValue.Y.Offset) * alpha
+                    )
+                    object[prop] = newValue
+                elseif typeof(endValue) == "Color3" then
+                    object._object[prop] = startValue:Lerp(endValue, alpha)
+                elseif typeof(endValue) == "number" then
+                    if object._object then
+                        object._object[prop] = startValue + (endValue - startValue) * alpha
+                    else
+                        object[prop] = startValue + (endValue - startValue) * alpha
+                    end
+                end
+            end
+            
+            if alpha >= 1 then
+                isPlaying = false
+                if connection then
+                    connection:Disconnect()
+                    connection = nil
+                end
+            end
+        end)
+    end
+    
+    function tweenObj:Cancel()
+        isPlaying = false
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+    end
+    
+    return tweenObj
+end
+
+-- Simple Signal implementation
+local signal = {}
+
+function signal.new()
+    local sig = {}
+    local connections = {}
+    
+    function sig:Connect(callback)
+        local connection = {
+            Connected = true,
+            _callback = callback
+        }
+        
+        function connection:Disconnect()
+            self.Connected = false
+            for i, conn in ipairs(connections) do
+                if conn == self then
+                    table.remove(connections, i)
+                    break
+                end
+            end
+        end
+        
+        table.insert(connections, connection)
+        return connection
+    end
+    
+    function sig:Fire(...)
+        for _, connection in ipairs(connections) do
+            if connection.Connected then
+                connection._callback(...)
+            end
+        end
+    end
+    
+    return sig
+end
 
 -- library
 if not isfolder(settings.folder_name) then
@@ -40,9 +287,11 @@ local images = {
     ['arrow_up'] = "https://ani.yt/Projects/furrydecapitator.rip/assetos/images/arrowup.png";
 }
 for i,v in next, images do
-    if not isfile(settings.folder_name..'/assets/'..i..'.ln') then
-        writefile(settings.folder_name..'/assets/'..i..'.ln', syn.crypt.custom.encrypt('aes-ctr',game:HttpGet(v),'4XGudgFuutoHUM2Ctwsq4YrQ','zP5JJWPSIbf5Xuuy'))
+    if not isfile(settings.folder_name..'/assets/'..i..'.png') then
+        writefile(settings.folder_name..'/assets/'..i..'.png', game:HttpGet(v))
     end
+    images[i] = readfile(settings.folder_name..'/assets/'..i..'.png')
+end
     images[i] = syn.crypt.custom.decrypt('aes-ctr',readfile(settings.folder_name..'/assets/'..i..'.ln'),'4XGudgFuutoHUM2Ctwsq4YrQ','zP5JJWPSIbf5Xuuy')
 end
 local services = setmetatable({}, {
@@ -231,7 +480,22 @@ local themes = {
 
 local themeobjects = {}
 local library = {drawings = {}, drawing_amount = 0, theme = table.clone(themes.Default),currentcolor = nil, folder = "velocity", flags = {}, open = false, mousestate = services.InputService.MouseIconEnabled, cursor = nil, holder = nil, connections = {}, notifications = {}};
-local decode = (syn and syn.crypt.base64.decode) or (crypt and crypt.base64decode) or base64_decode
+local function base64_decode(data)
+    local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    data = string.gsub(data, '[^'..b..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,f='',(b:find(x)-1)
+        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if (#x ~= 8) then return '' end
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end
+local decode = (crypt and crypt.base64decode) or base64_decode
 library.gradient = images.gradient90 --decode("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABuSURBVChTxY9BDoAgDASLGD2ReOYNPsR/+BAfroI7hibe9OYmky2wbUPIOdsXdc1f9WMwppQm+SDGBnUvomAQBH49qzhFEag25869ElzaIXDhD4JGbyoEVxUedN8FKwnfmwhucgKICc+pNB1mZhdCdhsa2ky0FAAAAABJRU5ErkJggg==")
 library.utility = utility
 
